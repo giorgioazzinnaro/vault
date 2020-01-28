@@ -3,6 +3,7 @@ package pki
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
@@ -48,8 +49,8 @@ func TestBackend_CA_Steps(t *testing.T) {
 
 	client := cluster.Cores[0].Client
 
-	// Set RSA/EC CA certificates
-	var rsaCAKey, rsaCACert, ecCAKey, ecCACert string
+	// Set RSA, EC, and ED25519 CA certificates
+	var rsaCAKey, rsaCACert, ecCAKey, ecCACert, ed25519CAKey, ed25519CACert string
 	{
 		cak, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		if err != nil {
@@ -119,10 +120,36 @@ func TestBackend_CA_Steps(t *testing.T) {
 			Bytes: caBytes,
 		}
 		rsaCACert = strings.TrimSpace(string(pem.EncodeToMemory(caCertPEMBlock)))
+
+		_, edak, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			panic(err)
+		}
+		marshaledKey, err = x509.MarshalPKIXPublicKey(edak)
+		if err != nil {
+			panic(err)
+		}
+		keyPEMBlock = &pem.Block{
+			Type:  "ED25519 PRIVATE KEY",
+			Bytes: marshaledKey,
+		}
+		ed25519CAKey = strings.TrimSpace(string(pem.EncodeToMemory(keyPEMBlock)))
+		if err != nil {
+			panic(err)
+		}
+		caBytes, err = x509.CreateCertificate(rand.Reader, caCertTemplate, caCertTemplate, edak.Public(), edak)
+		if err != nil {
+			panic(err)
+		}
+		caCertPEMBlock = &pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: caBytes,
+		}
+		ed25519CACert = strings.TrimSpace(string(pem.EncodeToMemory(caCertPEMBlock)))
 	}
 
 	// Setup backends
-	var rsaRoot, rsaInt, ecRoot, ecInt *backend
+	var rsaRoot, rsaInt, ecRoot, ecInt, ed25519Root, ed25519Int *backend
 	{
 		if err := client.Sys().Mount("rsaroot", &api.MountInput{
 			Type: "pki",
@@ -167,6 +194,28 @@ func TestBackend_CA_Steps(t *testing.T) {
 			t.Fatal(err)
 		}
 		ecInt = b
+
+		if err := client.Sys().Mount("ed25519root", &api.MountInput{
+			Type: "pki",
+			Config: api.MountConfigInput{
+				DefaultLeaseTTL: "16h",
+				MaxLeaseTTL:     "60h",
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		ed25519Root = b
+
+		if err := client.Sys().Mount("ed25519int", &api.MountInput{
+			Type: "pki",
+			Config: api.MountConfigInput{
+				DefaultLeaseTTL: "16h",
+				MaxLeaseTTL:     "60h",
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		ed25519Int = b
 	}
 
 	t.Run("teststeps", func(t *testing.T) {
@@ -187,6 +236,15 @@ func TestBackend_CA_Steps(t *testing.T) {
 			}
 			subClient.SetToken(client.Token())
 			runSteps(t, ecRoot, ecInt, subClient, "ecroot/", "ecint/", ecCACert, ecCAKey)
+		})
+		t.Run("ed25519", func(t *testing.T) {
+			t.Parallel()
+			subClient, err := client.Clone()
+			if err != nil {
+				t.Fatal(err)
+			}
+			subClient.SetToken(client.Token())
+			runSteps(t, ed25519Root, ed25519Int, subClient, "ed25519root/", "ed25519int/", ed25519CACert, ed25519CAKey)
 		})
 	})
 }
