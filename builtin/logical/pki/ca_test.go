@@ -49,7 +49,7 @@ func TestBackend_CA_Steps(t *testing.T) {
 
 	client := cluster.Cores[0].Client
 
-	// Set RSA, EC, and ED25519 CA certificates
+	// Set RSA, EC, and Ed25519 CA certificates
 	var rsaCAKey, rsaCACert, ecCAKey, ecCACert, ed25519CAKey, ed25519CACert string
 	{
 		cak, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -125,7 +125,7 @@ func TestBackend_CA_Steps(t *testing.T) {
 		if err != nil {
 			panic(err)
 		}
-		marshaledKey, err = x509.MarshalPKIXPublicKey(edak)
+		marshaledKey, err = x509.MarshalPKCS8PrivateKey(edak)
 		if err != nil {
 			panic(err)
 		}
